@@ -1,17 +1,27 @@
-// calculations.js – aktualizovaná verze
-// Změny oproti minulé verzi:
-//   1. Cíl (goal) je nově v procentech redukce/navýšení místo pevných kcal
-//   2. Reálná databáze potravin rozdělená do 4 skupin (snídaně/oběd × bílkoviny/sacharidy)
-//   3. Funkce getFoodGroupsForMeal přiřadí správnou skupinu každému jídlu
+// calculations.js – kompletní verze
+// Přesná replika logiky excelu:
+// - energie v kJ
+// - gramáže přes energii porce (ne přes gramy makroživin)
+// - 4 skupiny potravin: sacharidy, bílkoviny, tuky, ovoce/zelenina
+// - 12 typů jídel (sladká/slaná varianta pro každé jídlo)
+// - podíly energie z listu "Rozpočet"
+// - databáze potravin z jednotlivých listů excelu
 
 // ─────────────────────────────────────────────
-// 1. BMR (Harris-Benedict, revidovaná verze)
+// KONVERZE
+// ─────────────────────────────────────────────
+export const KCAL_TO_KJ = 4.184;
+export function kcalToKj(kcal) { return Math.round(kcal * KCAL_TO_KJ); }
+export function kjToKcal(kj)   { return Math.round(kj / KCAL_TO_KJ); }
+
+// ─────────────────────────────────────────────
+// 1. BMR v kJ
 // ─────────────────────────────────────────────
 export function calculateBMR(weight, height, age, gender) {
   if (gender === "male") {
-    return 88.362 + 13.397 * weight + 4.799 * height - 5.677 * age;
+    return (88.362 + 13.397 * weight + 4.799 * height - 5.677 * age) * KCAL_TO_KJ;
   } else {
-    return 447.593 + 9.247 * weight + 3.098 * height - 4.330 * age;
+    return (447.593 + 9.247 * weight + 3.098 * height - 4.330 * age) * KCAL_TO_KJ;
   }
 }
 
@@ -32,7 +42,7 @@ export function calculateBasePAL(jobActivity) {
 }
 
 // ─────────────────────────────────────────────
-// 3. SPORT (MET metoda)
+// 3. SPORT (MET) – výsledek v kJ/den
 // ─────────────────────────────────────────────
 export const sportOptions = [
   { value: "none",       label: "Žádný sport",                      met: 0   },
@@ -47,28 +57,24 @@ export const sportOptions = [
   { value: "crossfit",   label: "CrossFit",                         met: 9.0 },
 ];
 
-export function calculateSportCaloriesPerDay(sportType, daysPerWeek, minutesPerSession, weight) {
+export function calculateSportKjPerDay(sportType, daysPerWeek, minutesPerSession, weight) {
   if (sportType === "none" || !daysPerWeek || !minutesPerSession) return 0;
   const sport = sportOptions.find((s) => s.value === sportType);
   if (!sport || sport.met === 0) return 0;
   const kcalPerSession = sport.met * weight * (minutesPerSession / 60);
-  return (kcalPerSession * daysPerWeek) / 7;
+  return (kcalPerSession * KCAL_TO_KJ * daysPerWeek) / 7;
 }
 
 // ─────────────────────────────────────────────
-// 4. TDEE
+// 4. TDEE v kJ (včetně DIT 10 %)
 // ─────────────────────────────────────────────
-export function calculateTDEEDetailed(bmr, basePAL, sportCaloriesPerDay) {
-  return bmr * basePAL + sportCaloriesPerDay;
+export function calculateTDEE(bmrKj, basePAL, sportKjPerDay) {
+  return (bmrKj * basePAL + sportKjPerDay) * 1.1;
 }
 
 // ─────────────────────────────────────────────
-// 5. CÍLOVÝ PŘÍJEM – procentuální redukce/navýšení
+// 5. CÍLOVÝ PŘÍJEM
 // ─────────────────────────────────────────────
-// Místo pevného deficitu −500 kcal nyní pracujeme s procentuálním
-// násobičem. Terapeut zvolí například "Redukce −15 %" a aplikace
-// vynásobí TDEE hodnotou 0.85.
-
 export const goalOptions = [
   { value: "maintain", label: "Udržení hmotnosti (0 %)",        multiplier: 1.00 },
   { value: "lose_10",  label: "Redukce −10 %",                  multiplier: 0.90 },
@@ -78,232 +84,421 @@ export const goalOptions = [
   { value: "gain_10",  label: "Nabírání svalové hmoty (+10 %)", multiplier: 1.10 },
 ];
 
-export function calculateTargetCalories(tdee, goal) {
+export function calculateTargetKj(tdeeKj, goal) {
   const option = goalOptions.find((o) => o.value === goal);
-  const multiplier = option ? option.multiplier : 1.0;
-  return Math.round(tdee * multiplier);
+  return Math.round(tdeeKj * (option ? option.multiplier : 1.0));
 }
 
 // ─────────────────────────────────────────────
-// 6. MAKROŽIVINY
+// 6. MAKROŽIVINY v gramech
+// 1 g bílkovin = 17 kJ, 1 g sacharidů = 17 kJ, 1 g tuku = 37 kJ
 // ─────────────────────────────────────────────
-export function calculateMacros(targetCalories) {
+export function calculateMacros(targetKj) {
   return {
-    protein: Math.round((targetCalories * 0.30) / 4),
-    carbs:   Math.round((targetCalories * 0.45) / 4),
-    fat:     Math.round((targetCalories * 0.25) / 9),
+    protein: Math.round((targetKj * 0.275) / 17),
+    carbs:   Math.round((targetKj * 0.475) / 17),
+    fat:     Math.round((targetKj * 0.20)  / 37),
   };
 }
 
 // ─────────────────────────────────────────────
-// 7. DENNÍ JÍDLA
+// 7. TYPY JÍDEL
 // ─────────────────────────────────────────────
-export function distributeMeals(targetCalories) {
-  const distribution = [
-    { name: "Snídaně",           key: "breakfast", ratio: 0.25 },
-    { name: "Svačina",           key: "snack1",    ratio: 0.10 },
-    { name: "Oběd",              key: "lunch",     ratio: 0.35 },
-    { name: "Odpolední svačina", key: "snack2",    ratio: 0.10 },
-    { name: "Večeře",            key: "dinner",    ratio: 0.20 },
-  ];
-  return distribution.map((meal) => ({
-    ...meal,
-    calories: Math.round(targetCalories * meal.ratio),
-    protein:  Math.round((targetCalories * meal.ratio * 0.30) / 4),
-    carbs:    Math.round((targetCalories * meal.ratio * 0.45) / 4),
-    fat:      Math.round((targetCalories * meal.ratio * 0.25) / 9),
-  }));
-}
+// Každý typ má název, klíč a podíly energie skupin potravin.
+// Hodnoty přesně z listu "Rozpočet" v excelu.
 
-// ─────────────────────────────────────────────
-// 8. DATABÁZE POTRAVIN
-// ─────────────────────────────────────────────
-// Hodnoty jsou na 100 g (nebo 100 ml) potraviny.
-// ⚠️  ZKONTROLUJ a uprav hodnoty dle svých nutričních tabulek!
-//
-// Databáze je rozdělena do 4 skupin:
-//   breakfastProtein – bílkoviny pro snídani + svačiny
-//   breakfastCarbs   – sacharidy pro snídani + svačiny
-//   lunchProtein     – bílkoviny pro oběd + večeři
-//   lunchCarbs       – sacharidy pro oběd + večeři
-
-export const foodDatabase = {
-
-  // ── SNÍDANĚ / SVAČINY – BÍLKOVINY ──────────────────────────────────────────
-  breakfastProtein: [
-    { id: "camembert_linea",    name: "Camembert Linea Président",              kcal: 218, protein: 19.0, carbs: 0.5, fat: 15.0 },
-    { id: "cottage",            name: "Cottage",                                kcal: 98,  protein: 11.0, carbs: 3.4, fat: 4.3  },
-    { id: "cottage_light",      name: "Cottage light",                          kcal: 72,  protein: 11.5, carbs: 3.0, fat: 1.5  },
-    { id: "hermel_figura",      name: "Hermelín Figura",                        kcal: 198, protein: 20.0, carbs: 0.5, fat: 13.0 },
-    { id: "jogurt_hollandia",   name: "Jogurt bílý Hollandia",                  kcal: 61,  protein: 3.8,  carbs: 5.2, fat: 2.8  },
-    { id: "jogurt_milko_skyr",  name: "Jogurt bílý Milko + SKYR",              kcal: 57,  protein: 8.5,  carbs: 4.5, fat: 0.2  },
-    { id: "kefir",              name: "Kefír bílý",                             kcal: 52,  protein: 3.3,  carbs: 4.8, fat: 1.8  },
-    { id: "lucina",             name: "Lučina",                                 kcal: 228, protein: 8.5,  carbs: 3.5, fat: 19.5 },
-    { id: "lucina_linie",       name: "Lučina linie",                           kcal: 133, protein: 9.5,  carbs: 4.2, fat: 8.5  },
-    { id: "maslo",              name: "Máslo",                                  kcal: 740, protein: 0.7,  carbs: 0.7, fat: 82.0 },
-    { id: "mozzarella",         name: "Mozzarella",                             kcal: 280, protein: 19.0, carbs: 1.0, fat: 22.0 },
-    { id: "mozzarella_light",   name: "Mozzarella light",                       kcal: 168, protein: 18.0, carbs: 1.5, fat: 10.0 },
-    { id: "olma_drink",         name: "Olma drink",                             kcal: 55,  protein: 3.5,  carbs: 5.5, fat: 1.8  },
-    { id: "milbona_drink",      name: "Milbona drink",                          kcal: 52,  protein: 3.3,  carbs: 5.0, fat: 1.5  },
-    { id: "ovofit",             name: "Ovofit tvarohový dezert",                kcal: 88,  protein: 7.5,  carbs: 9.0, fat: 2.2  },
-    { id: "philadelphia_light", name: "Philadelphia light",                     kcal: 148, protein: 7.5,  carbs: 4.5, fat: 11.0 },
-    { id: "syr_30",             name: "Sýr 30%",                                kcal: 272, protein: 28.0, carbs: 0.5, fat: 17.5 },
-    { id: "vesela_krava",       name: "Sýr tavený nízkotučný – Veselá kráva fit", kcal: 155, protein: 12.0, carbs: 9.0, fat: 7.0 },
-    { id: "sunka_drubezi",      name: "Šunka drůbeží",                          kcal: 107, protein: 16.5, carbs: 1.5, fat: 3.8  },
-    { id: "sunka_vepro",        name: "Šunka vepřová (Dulano, 96 % masa)",      kcal: 99,  protein: 17.5, carbs: 0.5, fat: 3.0  },
-    { id: "cream_spread",       name: "Sýrová pomazánka Cream spread light – LIDL", kcal: 130, protein: 9.0, carbs: 5.0, fat: 8.0 },
-    { id: "tunak_snidane",      name: "Tuňák ve vlastní šťávě",                 kcal: 116, protein: 26.0, carbs: 0.0, fat: 1.0  },
-    { id: "tvaroh_mekky",       name: "Tvaroh měkký",                           kcal: 85,  protein: 13.5, carbs: 3.5, fat: 1.8  },
-    { id: "tvaroh_polotucny",   name: "Tvaroh polotučný",                       kcal: 114, protein: 14.5, carbs: 4.0, fat: 4.5  },
-    { id: "tvaroh_svacinka",    name: "Tvarohová svačinka Milko",               kcal: 92,  protein: 9.5,  carbs: 8.0, fat: 2.5  },
-    { id: "tvaruzky_snidane",   name: "Tvarůžky",                               kcal: 97,  protein: 29.0, carbs: 0.5, fat: 0.6  },
-    { id: "vejce_snidane",      name: "Vejce celé (1 vejce = 50 g)",            kcal: 155, protein: 13.0, carbs: 1.1, fat: 11.0 },
+export const mealTypeOptions = {
+  breakfast: [
+    { value: "breakfast_sweet",  label: "🍓 Snídaně sladká"  },
+    { value: "breakfast_savory", label: "🥚 Snídaně slaná"   },
   ],
-
-  // ── SNÍDANĚ / SVAČINY – SACHARIDY ──────────────────────────────────────────
-  breakfastCarbs: [
-    { id: "cerealie_bonavita",  name: "Celozrnné cereálie Bonavita",             kcal: 358, protein: 11.0, carbs: 65.0, fat: 5.0  },
-    { id: "dalamánek",          name: "Dalamánek celozrnný",                     kcal: 240, protein: 9.0,  carbs: 44.0, fat: 2.5  },
-    { id: "chleb_bily",         name: "Chléb bílý",                              kcal: 265, protein: 8.0,  carbs: 52.0, fat: 1.8  },
-    { id: "chleb_zitn",         name: "Chléb tmavý žitný",                       kcal: 220, protein: 7.0,  carbs: 42.0, fat: 1.5  },
-    { id: "chleb_penam_vecer",  name: "Chléb Penam večerní",                     kcal: 235, protein: 7.5,  carbs: 44.0, fat: 2.0  },
-    { id: "chleb_tastino",      name: "Chléb Tastino (Lidl)",                    kcal: 228, protein: 7.0,  carbs: 43.0, fat: 1.8  },
-    { id: "chleb_penam_fit",    name: "Chléb Penam Fit",                         kcal: 218, protein: 8.5,  carbs: 38.0, fat: 2.5  },
-    { id: "kaiserka",           name: "Kaiserka",                                kcal: 280, protein: 9.0,  carbs: 55.0, fat: 2.0  },
-    { id: "knackebrot",         name: "Knäckebrot",                              kcal: 350, protein: 10.0, carbs: 65.0, fat: 3.0  },
-    { id: "musli_mixit_prot",   name: "Müsli MIXIT – proteinové A. Ondry",       kcal: 380, protein: 18.0, carbs: 50.0, fat: 10.0 },
-    { id: "musli_mixit_plavky", name: "Müsli MIXIT – do plavek",                kcal: 365, protein: 10.0, carbs: 58.0, fat: 8.0  },
-    { id: "musli_emco",         name: "Müsli Emco bez cukru",                   kcal: 370, protein: 11.0, carbs: 57.0, fat: 8.5  },
-    { id: "vlocky",             name: "Ovesné vločky",                           kcal: 372, protein: 13.0, carbs: 59.0, fat: 7.0  },
-    { id: "toustak_tmavy",      name: "Toustový chléb tmavý",                   kcal: 248, protein: 8.5,  carbs: 44.0, fat: 3.5  },
-    { id: "toustak_protein",    name: "Toustový chléb proteinový Penam",        kcal: 245, protein: 14.0, carbs: 35.0, fat: 5.0  },
+  snack1: [
+    { value: "snack1_sweet",  label: "🍎 Přesnídávka sladká" },
+    { value: "snack1_savory", label: "🥙 Přesnídávka slaná"  },
   ],
-
-  // ── OBĚD / VEČEŘE – BÍLKOVINY ──────────────────────────────────────────────
-  lunchProtein: [
-    { id: "hermel_figura_ob",   name: "Hermelín – Figura",                       kcal: 198, protein: 20.0, carbs: 0.5, fat: 13.0 },
-    { id: "hovezi_vepro",       name: "Hovězí / vepřové maso",                  kcal: 175, protein: 26.0, carbs: 0.0, fat: 7.5  },
-    { id: "kapr",               name: "Kapr pečený",                             kcal: 162, protein: 22.0, carbs: 0.0, fat: 8.0  },
-    { id: "kralik",             name: "Králík",                                  kcal: 136, protein: 21.0, carbs: 0.0, fat: 5.5  },
-    { id: "kure_kruta",         name: "Kuřecí / krůtí prsa",                    kcal: 160, protein: 31.0, carbs: 0.0, fat: 3.5  },
-    { id: "losos_steak",        name: "Losos steak",                             kcal: 208, protein: 20.0, carbs: 0.0, fat: 13.0 },
-    { id: "makrela_uzena",      name: "Makrela uzená",                           kcal: 232, protein: 23.0, carbs: 0.0, fat: 15.0 },
-    { id: "morsky_vlk",         name: "Mořský vlk",                              kcal: 105, protein: 19.5, carbs: 0.0, fat: 2.8  },
-    { id: "tvaruzky_obed",      name: "Olomoucké tvarůžky",                      kcal: 97,  protein: 29.0, carbs: 0.5, fat: 0.6  },
-    { id: "pangasius",          name: "Pangasius",                               kcal: 83,  protein: 15.0, carbs: 0.0, fat: 2.5  },
-    { id: "pstruh",             name: "Pstruh",                                  kcal: 119, protein: 20.5, carbs: 0.0, fat: 4.0  },
-    { id: "pstruh_losos",       name: "Pstruh lososovitý",                       kcal: 135, protein: 21.0, carbs: 0.0, fat: 5.5  },
-    { id: "rybi_file",          name: "Rybí filé",                               kcal: 90,  protein: 18.5, carbs: 0.0, fat: 1.8  },
-    { id: "sardinky",           name: "Sardinky ve vlastní šťávě",               kcal: 135, protein: 23.0, carbs: 0.0, fat: 5.0  },
-    { id: "tofu",               name: "Sójové tofu",                             kcal: 76,  protein: 8.0,  carbs: 1.9, fat: 4.8  },
-    { id: "smakoun",            name: "Šmakoun",                                 kcal: 220, protein: 14.0, carbs: 4.0, fat: 16.0 },
-    { id: "teleci",             name: "Telecí kýta",                             kcal: 130, protein: 23.0, carbs: 0.0, fat: 4.0  },
-    { id: "tunak_obed",         name: "Tuňák ve vlastní šťávě",                  kcal: 116, protein: 26.0, carbs: 0.0, fat: 1.0  },
-    { id: "vejce_obed",         name: "Vejce celé",                              kcal: 155, protein: 13.0, carbs: 1.1, fat: 11.0 },
+  lunch: [
+    { value: "lunch_meat", label: "🥩 Oběd s masem"   },
+    { value: "lunch_veg",  label: "🥦 Oběd bezmasý"   },
   ],
-
-  // ── OBĚD / VEČEŘE – SACHARIDY ──────────────────────────────────────────────
-  // ⚠️ Gramáže se počítají vždy ze syrové hmotnosti, ale při vaření se
-  // mění objem. "Vařené" položky jsou tu pro orientaci klienta – terapeut
-  // si může vybrat, jakou formu zadá.
-  lunchCarbs: [
-    { id: "bataty",             name: "Batáty (vařené)",                         kcal: 86,  protein: 1.6,  carbs: 20.0, fat: 0.1 },
-    { id: "bramborova_kase",    name: "Bramborová kaše",                         kcal: 90,  protein: 2.0,  carbs: 18.0, fat: 1.5 },
-    { id: "brambory_varene",    name: "Brambory vařené",                         kcal: 87,  protein: 1.9,  carbs: 20.0, fat: 0.1 },
-    { id: "bulgur_syrovy",      name: "Bulgur syrový",                           kcal: 342, protein: 12.0, carbs: 70.0, fat: 1.3 },
-    { id: "bulgur_vareny",      name: "Bulgur vařený",                           kcal: 83,  protein: 3.1,  carbs: 18.0, fat: 0.2 },
-    { id: "jahly_syrove",       name: "Jáhly syrové",                            kcal: 378, protein: 11.0, carbs: 73.0, fat: 4.2 },
-    { id: "jahly_varene",       name: "Jáhly vařené",                            kcal: 119, protein: 3.5,  carbs: 23.0, fat: 1.0 },
-    { id: "kroupy_surove",      name: "Kroupy syrové",                           kcal: 352, protein: 9.5,  carbs: 74.0, fat: 1.5 },
-    { id: "kroupy_varene",      name: "Kroupy vařené",                           kcal: 123, protein: 2.3,  carbs: 28.0, fat: 0.4 },
-    { id: "kuskus_syrovy",      name: "Kuskus syrový",                           kcal: 376, protein: 13.0, carbs: 73.0, fat: 1.8 },
-    { id: "kuskus_vareny",      name: "Kuskus vařený",                           kcal: 112, protein: 3.8,  carbs: 23.0, fat: 0.2 },
-    { id: "lusteniny_surove",   name: "Luštěniny syrové",                        kcal: 340, protein: 22.0, carbs: 57.0, fat: 1.5 },
-    { id: "lusteniny_varene",   name: "Luštěniny vařené",                        kcal: 116, protein: 8.0,  carbs: 19.0, fat: 0.5 },
-    { id: "pohanka_syrova",     name: "Pohanka syrová",                          kcal: 343, protein: 13.0, carbs: 72.0, fat: 3.4 },
-    { id: "ryze_syrova",        name: "Rýže syrová",                             kcal: 365, protein: 7.0,  carbs: 79.0, fat: 0.7 },
-    { id: "ryze_varena",        name: "Rýže vařená",                             kcal: 130, protein: 2.7,  carbs: 28.0, fat: 0.3 },
-    { id: "testoviny_surove",   name: "Těstoviny syrové",                        kcal: 350, protein: 13.0, carbs: 68.0, fat: 2.0 },
-    { id: "testoviny_varene",   name: "Těstoviny vařené",                        kcal: 131, protein: 5.0,  carbs: 25.0, fat: 1.1 },
+  snack2: [
+    { value: "snack2_sweet",  label: "🍊 Svačina sladká" },
+    { value: "snack2_savory", label: "🥒 Svačina slaná"  },
+  ],
+  dinner: [
+    { value: "dinner_warm", label: "🍲 Večeře teplá"   },
+    { value: "dinner_cold", label: "🥗 Večeře studená" },
+  ],
+  dinner2: [
+    { value: "dinner2",     label: "🥛 Druhá večeře"            },
+    { value: "dinner2_veg", label: "🥬 Druhá večeře zeleninová" },
   ],
 };
 
-// ─────────────────────────────────────────────
-// 9. PŘIŘAZENÍ POTRAVIN K JÍDLU
-// ─────────────────────────────────────────────
-// Snídaně a obě svačiny → skupina "breakfast"
-// Oběd a večeře         → skupina "lunch"
+// Podíly energie skupin – přesně z listu "Rozpočet"
+export const mealEnergyRatios = {
+  breakfast_sweet:  { carbs: 0.45, prot: 0.26, fat: 0.17, frVeg: 0.12, frVegLabel: "Ovoce"    },
+  breakfast_savory: { carbs: 0.50, prot: 0.25, fat: 0.18, frVeg: 0.07, frVegLabel: "Zelenina" },
+  snack1_sweet:     { carbs: 0.00, prot: 0.50, fat: 0.00, frVeg: 0.50, frVegLabel: "Ovoce"    },
+  snack1_savory:    { carbs: 0.48, prot: 0.23, fat: 0.20, frVeg: 0.09, frVegLabel: "Zelenina" },
+  lunch_meat:       { carbs: 0.48, prot: 0.27, fat: 0.21, frVeg: 0.04, frVegLabel: "Zelenina" },
+  lunch_veg:        { carbs: 0.48, prot: 0.27, fat: 0.21, frVeg: 0.04, frVegLabel: "Zelenina" },
+  snack2_sweet:     { carbs: 0.00, prot: 0.50, fat: 0.00, frVeg: 0.50, frVegLabel: "Ovoce"    },
+  snack2_savory:    { carbs: 0.48, prot: 0.23, fat: 0.20, frVeg: 0.09, frVegLabel: "Zelenina" },
+  dinner_warm:      { carbs: 0.54, prot: 0.22, fat: 0.18, frVeg: 0.06, frVegLabel: "Zelenina" },
+  dinner_cold:      { carbs: 0.50, prot: 0.25, fat: 0.19, frVeg: 0.06, frVegLabel: "Zelenina" },
+  dinner2:          { carbs: 0.00, prot: 0.70, fat: 0.30, frVeg: 0.00, frVegLabel: ""         },
+  dinner2_veg:      { carbs: 0.00, prot: 0.50, fat: 0.20, frVeg: 0.30, frVegLabel: "Zelenina" },
+};
 
-export function getFoodGroupsForMeal(mealKey) {
-  const breakfastMeals = ["breakfast", "snack1", "snack2"];
-  if (breakfastMeals.includes(mealKey)) {
-    return { proteinGroup: foodDatabase.breakfastProtein, carbGroup: foodDatabase.breakfastCarbs };
-  } else {
-    return { proteinGroup: foodDatabase.lunchProtein,     carbGroup: foodDatabase.lunchCarbs     };
+// ─────────────────────────────────────────────
+// 8. ROZDĚLENÍ ENERGIE NA JÍDLA
+// Podíly z listu "Jidelak": 20/10/35/10/20/5
+// ─────────────────────────────────────────────
+export function distributeMeals(targetKj, mealTypes) {
+  const distribution = [
+    { name: "Snídaně",      key: "breakfast", ratio: 0.20 },
+    { name: "Přesnídávka",  key: "snack1",    ratio: 0.10 },
+    { name: "Oběd",         key: "lunch",     ratio: 0.35 },
+    { name: "Svačina",      key: "snack2",    ratio: 0.10 },
+    { name: "Večeře",       key: "dinner",    ratio: 0.20 },
+    { name: "Druhá večeře", key: "dinner2",   ratio: 0.05 },
+  ];
+
+  return distribution.map((meal) => {
+    const totalKj  = Math.round(targetKj * meal.ratio);
+    const mealType = mealTypes[meal.key] || Object.keys(mealEnergyRatios).find(k => k.startsWith(meal.key));
+    const ratios   = mealEnergyRatios[mealType] || mealEnergyRatios.breakfast_sweet;
+
+    return {
+      ...meal,
+      mealType,
+      totalKj,
+      totalKcal:    kjToKcal(totalKj),
+      energyCarbs:  Math.round(totalKj * ratios.carbs),
+      energyProt:   Math.round(totalKj * ratios.prot),
+      energyFat:    Math.round(totalKj * ratios.fat),
+      energyFrVeg:  Math.round(totalKj * ratios.frVeg),
+      frVegLabel:   ratios.frVegLabel,
+    };
+  });
+}
+
+// ─────────────────────────────────────────────
+// 9. VÝPOČET GRAMÁŽE PŘES ENERGII
+// gramáž = (energie porce kJ / kJ na 100g) × 100
+// Zaokrouhlení na 5 g
+// ─────────────────────────────────────────────
+export function calculatePortionByEnergy(foodKjPer100g, portionEnergyKj) {
+  if (!foodKjPer100g || foodKjPer100g === 0 || portionEnergyKj === 0) return 0;
+  const rawGrams = (portionEnergyKj / foodKjPer100g) * 100;
+  return Math.round(rawGrams / 5) * 5;
+}
+
+// ─────────────────────────────────────────────
+// 10. DATABÁZE POTRAVIN
+// Hodnoty z excelu – energie v kJ na 100g
+// ─────────────────────────────────────────────
+
+// Sacharidy – pečivo (sdílené pro slaná jídla: snídaně, přesnídávka, svačina, večeře studená)
+const breadCarbs = [
+  { id: "toast_cz",     name: "Toastový chléb celozrnný",           kj: 1074 },
+  { id: "chleb_konz",   name: "Chléb konzumní",                     kj: 1020 },
+  { id: "chleb_zitn",   name: "Chléb žitný",                        kj: 1010 },
+  { id: "knack_zitn",   name: "Knäckebrot žitný",                   kj: 1486 },
+  { id: "knack",        name: "Knäckebrot",                         kj: 1500 },
+  { id: "rohlik_gr",    name: "Rohlík grahamový",                   kj: 1323 },
+  { id: "rohlik_bily",  name: "Rohlík bílý",                        kj: 1202 },
+  { id: "bageta_vz",    name: "Bageta vícezrnná",                   kj: 1144 },
+  { id: "kaiserka",     name: "Kaiserka cereální",                  kj: 1100 },
+  { id: "chleb_slun",   name: "Chléb slunečnicový (žitnopšeničný)", kj: 1088 },
+  { id: "chleb_bl",     name: "Chléb bezlepkový (Schar)",           kj: 1020 },
+  { id: "tortilla_cz",  name: "Celozrnná tortilla",                 kj: 1100 },
+];
+
+// Sacharidy – obiloviny (pro sladká jídla a obědy)
+const grainCarbs = [
+  { id: "vlocky",       name: "Ovesné vločky",                      kj: 1562 },
+  { id: "spald_vl",     name: "Špaldové vločky",                    kj: 1474 },
+  { id: "ryz_vl",       name: "Rýžové vločky",                      kj: 1474 },
+  { id: "jahly",        name: "Jáhly",                              kj: 1530 },
+  { id: "musli",        name: "Müsli bez přidaného cukru",          kj: 1513 },
+  { id: "kuskus",       name: "Kuskus",                             kj: 1450 },
+  { id: "kuskus_cz",    name: "Celozrnný kuskus",                   kj: 1454 },
+  { id: "bulgur",       name: "Bulgur",                             kj: 1436 },
+  { id: "amarant",      name: "Amarant",                            kj: 1553 },
+  { id: "pohanka",      name: "Pohanka",                            kj: 1473 },
+  { id: "quinoa",       name: "Quinoa",                             kj: 1541 },
+  { id: "ryze_bila",    name: "Rýže bílá (jasmínová, basmati)",     kj: 1505 },
+  { id: "ryze_cz",      name: "Celozrnná rýže",                     kj: 1566 },
+  { id: "test_sem",     name: "Těstoviny semolinové",               kj: 1482 },
+  { id: "test_cz",      name: "Celozrnné těstoviny",                kj: 1478 },
+  { id: "bataty",       name: "Batáty",                             kj: 314  },
+  { id: "brambory",     name: "Brambory",                           kj: 371  },
+  { id: "cocka",        name: "Čočka",                              kj: 1290 },
+  { id: "cocka_cerv",   name: "Čočka červená",                      kj: 1260 },
+];
+
+// Bílkoviny – mléčné výrobky a lehké bílkoviny (snídaně, přesnídávky, svačiny)
+const dairyProtein = [
+  { id: "mleko_pol",    name: "Mléko polotučné",                    kj: 198  },
+  { id: "jogurt_hol",   name: "Jogurt holandského typu",            kj: 279  },
+  { id: "jogurt_niz",   name: "Jogurt nízkotučný",                  kj: 170  },
+  { id: "jogurt_rec",   name: "Jogurt řecký (0 % tuku)",            kj: 241  },
+  { id: "skyr",         name: "Skyr (0 % tuku)",                    kj: 283  },
+  { id: "kefir",        name: "Kefírové mléko / podmáslí 1,1%",     kj: 165  },
+  { id: "acidofil",     name: "Acidofilní mléko 3,6 %",             kj: 252  },
+  { id: "kyska",        name: "Kyška",                              kj: 178  },
+  { id: "tvaroh_odt",   name: "Tvaroh odtučněný",                   kj: 288  },
+  { id: "tvaroh_pol",   name: "Tvaroh polotučný",                   kj: 362  },
+  { id: "mleko_pl",     name: "Plnotučné mléko",                    kj: 271  },
+  { id: "jogurt_27",    name: "Jogurt bílý 2,7 %",                  kj: 285  },
+  { id: "ovofit",       name: "Ovofit různé druhy",                 kj: 330  },
+];
+
+// Bílkoviny – sýry, šunky a ryby (slaná jídla)
+const savoryProtein = [
+  { id: "tvaroh_odt",   name: "Tvaroh odtučněný",                   kj: 288  },
+  { id: "tvaroh_pol",   name: "Tvaroh polotučný",                   kj: 362  },
+  { id: "syr_30",       name: "Tvrdé sýry 30 % tuku v sušině",      kj: 1101 },
+  { id: "syr_20",       name: "Tvrdé sýry 20 % tuku v sušině",      kj: 954  },
+  { id: "syr_45",       name: "Tvrdé sýry 45 % tuku v sušině",      kj: 1340 },
+  { id: "cottage_l",    name: "Cottage sýr light",                  kj: 389  },
+  { id: "mozz_light",   name: "Mozzarella light",                   kj: 690  },
+  { id: "sunka_kur",    name: "Šunka kuřecí/ krůtí 92 % masa",      kj: 386  },
+  { id: "sunka_vep",    name: "Šunka vepřová libová 92 % masa",     kj: 456  },
+  { id: "tunak_vl",     name: "Tuňák ve vlastní šťávě",             kj: 420  },
+  { id: "sardinky",     name: "Sardinky ve vlastní šťávě",          kj: 737  },
+  { id: "vejce",        name: "Vejce",                              kj: 615  },
+  { id: "tlacenka",     name: "Tlačenka",                           kj: 545  },
+  { id: "zavinace",     name: "Zavináče",                           kj: 350  },
+  { id: "parenica",     name: "Parenica/ korbačíky neuzené",        kj: 1050 },
+  { id: "ostiepok",     name: "Oštiepok",                          kj: 1250 },
+  { id: "taveny_syr",   name: "Tavený sýr",                        kj: 900  },
+  { id: "tvaruzky",     name: "Tvarůžky",                          kj: 406  },
+  { id: "tunak_olej",   name: "Tuňák v oleji",                     kj: 820  },
+];
+
+// Bílkoviny – maso a ryby (obědy, teplé večeře)
+const meatProtein = [
+  { id: "kure_prsa",    name: "Kuřecí/ krůtí prsní řízky",         kj: 442  },
+  { id: "kure_steh",    name: "Kuřecí stehenní řízky",             kj: 447  },
+  { id: "vepr_kyta",    name: "Vepřová kýta libová",               kj: 540  },
+  { id: "vepr_pan",     name: "Vepřová panenka",                   kj: 569  },
+  { id: "hov_zadni",    name: "Hovězí zadní (kýta)",               kj: 643  },
+  { id: "hov_kl",       name: "Hovězí kližka/ plec libová",        kj: 444  },
+  { id: "hov_svic",     name: "Hovězí svíčková",                   kj: 510  },
+  { id: "hov_mlete",    name: "Hovězí mleté (do 10 % tuku)",       kj: 700  },
+  { id: "kralik",       name: "Králík",                            kj: 443  },
+  { id: "kure_jatr",    name: "Kuřecí játra",                      kj: 536  },
+  { id: "tunak_st",     name: "Tuňák steak",                       kj: 603  },
+  { id: "treska",       name: "Treska/ mořský vlk filet",          kj: 289  },
+  { id: "makrela",      name: "Makrela kuchaná",                   kj: 745  },
+  { id: "tilapie",      name: "Tilápie filet",                     kj: 380  },
+  { id: "losos",        name: "Losos",                             kj: 837  },
+  { id: "kapr",         name: "Kapr filety",                       kj: 452  },
+  { id: "pstruh",       name: "Pstruh",                            kj: 498  },
+  { id: "krevety",      name: "Krevety",                           kj: 347  },
+];
+
+// Bílkoviny – bezmasé alternativy (obědy bezmasé, teplé večeře)
+const vegProtein = [
+  { id: "vejce",        name: "Vejce",                             kj: 615  },
+  { id: "smakoun",      name: "Šmakoun",                           kj: 920  },
+  { id: "tofu",         name: "Tofu natural/ uzené",               kj: 318  },
+  { id: "tempeh",       name: "Tempeh",                            kj: 820  },
+  { id: "robi",         name: "Robi plátky",                       kj: 590  },
+];
+
+// Tuky – mazané (snídaně, svačiny, studená večeře)
+const spreadFat = [
+  { id: "maslo",        name: "Máslo 82%",                         kj: 3051 },
+  { id: "pom_maslo",    name: "Pomazánkové máslo",                 kj: 1280 },
+  { id: "rama",         name: "Rama classic",                      kj: 2220 },
+  { id: "flora",        name: "Flora original",                    kj: 1665 },
+  { id: "ricotta",      name: "Ricotta",                           kj: 505  },
+  { id: "lucina",       name: "Lučina čistá/ palouček",            kj: 1105 },
+  { id: "gervais",      name: "Gervais original",                  kj: 760  },
+  { id: "phil_orig",    name: "Philadelphia original",             kj: 910  },
+  { id: "phil_light",   name: "Philadelphia light",                kj: 603  },
+  { id: "avokado",      name: "Avokádo",                           kj: 662  },
+  { id: "hummus",       name: "Hummus",                            kj: 740  },
+];
+
+// Tuky – ořechy (sladká snídaně)
+const nutFat = [
+  { id: "vlassk_or",    name: "Vlašské ořechy",                    kj: 2757 },
+  { id: "mandle",       name: "Mandle neloupané",                  kj: 2408 },
+  { id: "kesu",         name: "Kešu",                              kj: 2314 },
+  { id: "liskove",      name: "Lískové ořechy",                    kj: 2630 },
+  { id: "arasidy",      name: "Arašídy/ arašídové máslo",          kj: 2630 },
+  { id: "coko_70",      name: "Hořká čokoláda 70% Lindt",          kj: 2450 },
+  { id: "coko_50",      name: "Hořká čokoláda 50% Orion",          kj: 2280 },
+];
+
+// Tuky – oleje a živočišné tuky (obědy, teplé večeře)
+const cookingFat = [
+  { id: "repk_ol",      name: "Řepkový olej",                      kj: 3696 },
+  { id: "oliv_ol",      name: "Olivový olej",                      kj: 3696 },
+  { id: "soj_ol",       name: "Sójový olej",                       kj: 3696 },
+  { id: "slun_ol",      name: "Slunečnicový olej",                 kj: 3696 },
+  { id: "maslo_82",     name: "Máslo 82%",                         kj: 3051 },
+  { id: "sadlo",        name: "Vepřové sádlo",                     kj: 3696 },
+  { id: "smet_12",      name: "Smetana 12%",                       kj: 494  },
+  { id: "zak_smet",     name: "Zakysaná smetana 16%",              kj: 720  },
+  { id: "angl_sl",      name: "Anglická slanina",                  kj: 1600 },
+];
+
+// Ovoce (sladká jídla)
+const fruit = [
+  { id: "ananas",       name: "Ananas",                            kj: 218  },
+  { id: "banan",        name: "Banán",                             kj: 371  },
+  { id: "boruvky",      name: "Borůvky kanadské",                  kj: 235  },
+  { id: "broskve",      name: "Broskve",                           kj: 160  },
+  { id: "grapefr",      name: "Grapefruit",                        kj: 138  },
+  { id: "hrozny",       name: "Hrozny",                            kj: 281  },
+  { id: "hrusky",       name: "Hrušky zelené",                     kj: 218  },
+  { id: "jablka",       name: "Jablka",                            kj: 218  },
+  { id: "kaki",         name: "Kaki",                              kj: 276  },
+  { id: "maliny",       name: "Maliny",                            kj: 151  },
+  { id: "mandarinky",   name: "Mandarinky",                        kj: 197  },
+  { id: "mango",        name: "Mango",                             kj: 272  },
+  { id: "meloun",       name: "Meloun vodní",                      kj: 126  },
+  { id: "merunky",      name: "Meruňky",                           kj: 180  },
+  { id: "nektarinky",   name: "Nektarinky",                        kj: 180  },
+  { id: "ostuziny",     name: "Ostružiny",                         kj: 151  },
+  { id: "pomeranc",     name: "Pomeranč",                          kj: 197  },
+  { id: "svestky",      name: "Švestky",                           kj: 188  },
+  { id: "tresne",       name: "Třešně/ višně",                     kj: 243  },
+  { id: "dzem",         name: "Džem různé druhy",                  kj: 1100 },
+  { id: "dzem_lc",      name: "Džem se sníženým obsahem cukru",    kj: 550  },
+];
+
+// Zelenina – lehká (snídaně slaná, přesnídávka slaná, svačina slaná, večeře studená)
+const lightVeg = [
+  { id: "cin_zeli",     name: "Čínské zelí/ hlávkový salát",       kj: 55   },
+  { id: "kedlubna",     name: "Kedlubna",                          kj: 109  },
+  { id: "okurka",       name: "Okurka salátová",                   kj: 59   },
+  { id: "papr_cerv",    name: "Paprika červená",                   kj: 131  },
+  { id: "papr_bila",    name: "Paprika bílá",                      kj: 84   },
+  { id: "rajcata",      name: "Rajčata",                           kj: 71   },
+  { id: "rukola",       name: "Rukola/ špenát",                    kj: 97   },
+  { id: "ajvar",        name: "Ajvar",                             kj: 280  },
+  { id: "sus_houby",    name: "Sušené houby",                      kj: 1000 },
+  { id: "naklicena",    name: "Naklíčená čočka",                   kj: 150  },
+  { id: "mrkev_mix",    name: "Mrkev, celer, petržel, ředkev",     kj: 155  },
+];
+
+// Zelenina – hlavní jídla (obědy, teplé večeře)
+const mainVeg = [
+  { id: "cuketa",       name: "Cuketa",                            kj: 71   },
+  { id: "cin_zeli",     name: "Čínské zelí/ hlávkový salát",       kj: 55   },
+  { id: "dyne",         name: "Dýně hokkaido",                     kj: 105  },
+  { id: "kedlubna",     name: "Kedlubna",                          kj: 109  },
+  { id: "lilek",        name: "Lilek",                             kj: 88   },
+  { id: "mrkev_mix",    name: "Mrkev, celer, petržel, ředkev",     kj: 155  },
+  { id: "okurka",       name: "Okurka salátová",                   kj: 59   },
+  { id: "porek",        name: "Pórek",                             kj: 130  },
+  { id: "papr_cerv",    name: "Paprika červená",                   kj: 131  },
+  { id: "papr_bila",    name: "Paprika bílá",                      kj: 84   },
+  { id: "rajcata",      name: "Rajčata",                           kj: 71   },
+  { id: "rukola",       name: "Rukola/ špenát",                    kj: 97   },
+  { id: "brokolice",    name: "Brokolice",                         kj: 150  },
+  { id: "cibule",       name: "Cibule",                            kj: 167  },
+  { id: "kukurice",     name: "Kukuřice cukrová",                  kj: 360  },
+  { id: "ajvar",        name: "Ajvar",                             kj: 280  },
+  { id: "sus_houby",    name: "Sušené houby",                      kj: 1000 },
+  { id: "naklicena",    name: "Naklíčená čočka",                   kj: 150  },
+];
+
+// ─────────────────────────────────────────────
+// 11. PŘIŘAZENÍ SKUPIN POTRAVIN K TYPU JÍDLA
+// ─────────────────────────────────────────────
+export function getFoodGroupsForMealType(mealType) {
+  switch (mealType) {
+    case "breakfast_sweet":
+      return { carbGroup: grainCarbs,  protGroup: dairyProtein, fatGroup: nutFat,     frVegGroup: fruit    };
+    case "breakfast_savory":
+      return { carbGroup: breadCarbs,  protGroup: savoryProtein, fatGroup: spreadFat, frVegGroup: lightVeg };
+    case "snack1_sweet":
+    case "snack2_sweet":
+      return { carbGroup: [],          protGroup: dairyProtein, fatGroup: [],          frVegGroup: fruit    };
+    case "snack1_savory":
+    case "snack2_savory":
+      return { carbGroup: breadCarbs,  protGroup: savoryProtein, fatGroup: spreadFat, frVegGroup: lightVeg };
+    case "lunch_meat":
+      return { carbGroup: grainCarbs,  protGroup: meatProtein,  fatGroup: cookingFat, frVegGroup: mainVeg  };
+    case "lunch_veg":
+      return { carbGroup: grainCarbs,  protGroup: vegProtein,   fatGroup: cookingFat, frVegGroup: mainVeg  };
+    case "dinner_warm":
+      return { carbGroup: grainCarbs,  protGroup: [...vegProtein, ...meatProtein.filter(f => ["kure_prsa","kure_steh","hov_mlete","tunak_st","treska","tilapie","losos","krevety"].includes(f.id))],
+               fatGroup: cookingFat, frVegGroup: mainVeg };
+    case "dinner_cold":
+      return { carbGroup: breadCarbs,  protGroup: savoryProtein, fatGroup: spreadFat, frVegGroup: lightVeg };
+    case "dinner2":
+      return { carbGroup: [],          protGroup: dairyProtein, fatGroup: nutFat,     frVegGroup: []       };
+    case "dinner2_veg":
+      return { carbGroup: [],          protGroup: savoryProtein, fatGroup: spreadFat, frVegGroup: mainVeg  };
+    default:
+      return { carbGroup: grainCarbs,  protGroup: dairyProtein, fatGroup: nutFat,     frVegGroup: fruit    };
   }
 }
 
 // ─────────────────────────────────────────────
-// 10. GRAMÁŽE
-// ─────────────────────────────────────────────
-export function calculatePortionSize(food, targetMacroGrams, macroKey) {
-  const macroPer100g = food[macroKey];
-  if (!macroPer100g || macroPer100g === 0) return 0;
-  return Math.round(((targetMacroGrams / macroPer100g) * 100) / 5) * 5;
-}
-
-// ─────────────────────────────────────────────
-// 11. GENEROVÁNÍ JÍDELNÍČKU
+// 12. GENEROVÁNÍ JÍDELNÍČKU
 // ─────────────────────────────────────────────
 export function generateMealPlan(clientData) {
   const weight = parseFloat(clientData.weight);
   const height = parseFloat(clientData.height);
   const age    = parseFloat(clientData.age);
 
-  let bmr, basePAL, sportKcalPerDay, tdee, targetCalories;
+  let bmrKj, basePAL, sportKjPerDay, tdeeKj, targetKj;
 
   if (clientData.energyMode === "manual") {
-    targetCalories = parseInt(clientData.manualKcal, 10);
+    targetKj = kcalToKj(parseInt(clientData.manualKcal, 10));
   } else {
-    bmr             = calculateBMR(weight, height, age, clientData.gender);
-    basePAL         = calculateBasePAL(clientData.jobActivity);
-    sportKcalPerDay = calculateSportCaloriesPerDay(
+    bmrKj         = calculateBMR(weight, height, age, clientData.gender);
+    basePAL       = calculateBasePAL(clientData.jobActivity);
+    sportKjPerDay = calculateSportKjPerDay(
       clientData.sportType,
       parseInt(clientData.sportDays, 10),
       parseInt(clientData.sportMinutes, 10),
       weight
     );
-    tdee           = calculateTDEEDetailed(bmr, basePAL, sportKcalPerDay);
-    targetCalories = calculateTargetCalories(tdee, clientData.goal);
+    tdeeKj   = calculateTDEE(bmrKj, basePAL, sportKjPerDay);
+    targetKj = calculateTargetKj(tdeeKj, clientData.goal);
   }
 
-  const macros   = calculateMacros(targetCalories);
-  const meals    = distributeMeals(targetCalories);
+  const macros = calculateMacros(targetKj);
+  const meals  = distributeMeals(targetKj, clientData.mealTypes || {
+    breakfast: "breakfast_sweet",
+    snack1:    "snack1_sweet",
+    lunch:     "lunch_meat",
+    snack2:    "snack2_sweet",
+    dinner:    "dinner_warm",
+    dinner2:   "dinner2",
+  });
 
   const mealPlan = meals.map((meal) => {
-    const { proteinGroup, carbGroup } = getFoodGroupsForMeal(meal.key);
+    const { carbGroup, protGroup, fatGroup, frVegGroup } = getFoodGroupsForMealType(meal.mealType);
     return {
       ...meal,
-      proteinOptions: proteinGroup.map((food) => ({
-        ...food,
-        portionGrams: calculatePortionSize(food, meal.protein, "protein"),
-      })),
-      carbOptions: carbGroup.map((food) => ({
-        ...food,
-        portionGrams: calculatePortionSize(food, meal.carbs, "carbs"),
-      })),
+      carbOptions:  carbGroup.map((f)  => ({ ...f, portionGrams: calculatePortionByEnergy(f.kj, meal.energyCarbs)  })),
+      protOptions:  protGroup.map((f)  => ({ ...f, portionGrams: calculatePortionByEnergy(f.kj, meal.energyProt)   })),
+      fatOptions:   fatGroup.map((f)   => ({ ...f, portionGrams: calculatePortionByEnergy(f.kj, meal.energyFat)    })),
+      frVegOptions: frVegGroup.map((f) => ({ ...f, portionGrams: calculatePortionByEnergy(f.kj, meal.energyFrVeg)  })),
     };
   });
 
   return {
-    clientName:      clientData.name,
-    energyMode:      clientData.energyMode,
-    goal:            clientData.goal,
-    bmr:             bmr             ? Math.round(bmr)                 : null,
-    basePAL:         basePAL         ? Math.round(basePAL * 100) / 100 : null,
-    sportKcalPerDay: sportKcalPerDay ? Math.round(sportKcalPerDay)     : null,
-    tdee:            tdee            ? Math.round(tdee)                : null,
-    targetCalories,
+    clientName:  clientData.name,
+    energyMode:  clientData.energyMode,
+    goal:        clientData.goal,
+    bmrKj:       bmrKj  ? Math.round(bmrKj)  : null,
+    bmrKcal:     bmrKj  ? kjToKcal(bmrKj)    : null,
+    tdeeKj:      tdeeKj ? Math.round(tdeeKj) : null,
+    tdeeKcal:    tdeeKj ? kjToKcal(tdeeKj)   : null,
+    targetKj,
+    targetKcal:  kjToKcal(targetKj),
     macros,
     mealPlan,
   };
