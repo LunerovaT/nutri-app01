@@ -14,11 +14,11 @@ import {
   where,
   orderBy,
   serverTimestamp,
-} from "firebase/firestore";
-import { db } from "./firebase";
+} from 'firebase/firestore';
+import { db } from './firebase';
 
 // Název kolekce v Firestore
-const CLIENTS_COLLECTION = "clients";
+const CLIENTS_COLLECTION = 'clients';
 
 // ─────────────────────────────────────────────
 // NAČTENÍ VŠECH KLIENTŮ přihlášeného terapeuta
@@ -26,8 +26,8 @@ const CLIENTS_COLLECTION = "clients";
 export async function getClients(userId) {
   const q = query(
     collection(db, CLIENTS_COLLECTION),
-    where("userId", "==", userId),
-    orderBy("createdAt", "desc")
+    where('userId', '==', userId),
+    orderBy('createdAt', 'desc'),
   );
   const snapshot = await getDocs(q);
   return snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
@@ -41,21 +41,21 @@ export async function getClients(userId) {
 
 export async function saveClient(userId, clientData, mealPlan) {
   const docRef = await addDoc(collection(db, CLIENTS_COLLECTION), {
-    userId,                          // vazba na terapeuta
+    userId, // vazba na terapeuta
     // Kontaktní údaje
-    name:    clientData.name,
-    email:   clientData.email  || "",
-    phone:   clientData.phone  || "",
-    notes:   clientData.notes  || "",
+    name: clientData.name,
+    email: clientData.email || '',
+    phone: clientData.phone || '',
+    notes: clientData.notes || '',
     // Fyzické údaje
-    age:     clientData.age,
-    weight:  clientData.weight,
-    height:  clientData.height,
-    gender:  clientData.gender,
-    goal:    clientData.goal,
+    age: clientData.age,
+    weight: clientData.weight,
+    height: clientData.height,
+    gender: clientData.gender,
+    goal: clientData.goal,
     // Jídelníček
     mealPlan,
-    targetCalories: mealPlan.targetCalories,
+    targetCalories: mealPlan.targetKcal ?? mealPlan.targetCalories ?? 0,
     // Metadata
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
@@ -69,15 +69,15 @@ export async function saveClient(userId, clientData, mealPlan) {
 export async function updateClient(clientId, clientData, mealPlan) {
   const docRef = doc(db, CLIENTS_COLLECTION, clientId);
   await updateDoc(docRef, {
-    name:    clientData.name,
-    email:   clientData.email  || "",
-    phone:   clientData.phone  || "",
-    notes:   clientData.notes  || "",
-    age:     clientData.age,
-    weight:  clientData.weight,
-    height:  clientData.height,
-    gender:  clientData.gender,
-    goal:    clientData.goal,
+    name: clientData.name,
+    email: clientData.email || '',
+    phone: clientData.phone || '',
+    notes: clientData.notes || '',
+    age: clientData.age,
+    weight: clientData.weight,
+    height: clientData.height,
+    gender: clientData.gender,
+    goal: clientData.goal,
     mealPlan,
     targetCalories: mealPlan.targetCalories,
     updatedAt: serverTimestamp(),
