@@ -1,4 +1,4 @@
-// calculations.js – kompletní verze
+// calculations.js – opravená verze (srovnána s excelem jidelnicek.xlsm)
 
 // ─────────────────────────────────────────────
 // KONVERZE
@@ -196,7 +196,9 @@ export function distributeMeals(targetKj, mealTypes, customRatios = {}) {
 
     if (typeList.length === 0) continue;
 
-    const kjPerVariant = Math.round(totalKj / typeList.length);
+    // Každá varianta dostane PLNOU energii jídla – klient si vybere jednu z nich.
+    // (Dříve se energie dělila počtem variant, což vedlo k polovičním gramážím.)
+    const kjPerVariant = totalKj;
 
     for (const mealType of typeList) {
       const defaults = mealEnergyRatios[mealType] || mealEnergyRatios.breakfast_sweet;
@@ -243,6 +245,46 @@ export function calculatePortionByEnergy(foodKjPer100g, portionEnergyKj) {
 // 10. DATABÁZE POTRAVIN
 // ─────────────────────────────────────────────
 
+// Sacharidy – SNÍDANĚ SLADKÁ: pouze vločky a pseudoobiloviny (dle excelu)
+// FIX: dříve se používal grainCarbs (celý) → zobrazovala se rýže, těstoviny, brambory atd.
+const breakfastGrainCarbs = [
+  { id: "vlocky",    name: "Ovesné vločky",                kj: 1562 },
+  { id: "spald_vl",  name: "Špaldové vločky",              kj: 1474 },
+  { id: "ryz_vl",    name: "Rýžové vločky",                kj: 1474 },
+  { id: "jahly",     name: "Jáhly",                        kj: 1530 },
+  { id: "musli",     name: "Müsli bez přidaného cukru",    kj: 1513 },
+];
+
+// Sacharidy – OBĚD S MASEM + VEČEŘE TEPLÁ: bez čočky (dle excelu)
+// FIX: dříve grainCarbs obsahoval čočku, která tam nepatří
+const mainGrainCarbs = [
+  { id: "kuskus",     name: "Kuskus",                            kj: 1450 },
+  { id: "kuskus_cz",  name: "Celozrnný kuskus",                  kj: 1454 },
+  { id: "bulgur",     name: "Bulgur",                            kj: 1436 },
+  { id: "amarant",    name: "Amarant",                           kj: 1553 },
+  { id: "pohanka",    name: "Pohanka",                           kj: 1473 },
+  { id: "quinoa",     name: "Quinoa",                            kj: 1541 },
+  { id: "ryze_bila",  name: "Rýže bílá (jasmínová, basmati)",    kj: 1505 },
+  { id: "ryze_cz",    name: "Celozrnná rýže",                    kj: 1566 },
+  { id: "test_sem",   name: "Těstoviny semolinové",              kj: 1482 },
+  { id: "test_cz",    name: "Celozrnné těstoviny",               kj: 1478 },
+  { id: "bataty",     name: "Batáty",                            kj: 314  },
+  { id: "brambory",   name: "Brambory",                          kj: 371  },
+  { id: "tortilla_cz",name: "Celozrnná tortilla",                kj: 1100 },
+];
+
+// Sacharidy – OBĚD BEZMASÝ: jako mainGrainCarbs + luštěniny (dle excelu)
+// FIX: bezmasý oběd má navíc hrách, fazole, cizrnu, čočku
+const vegLunchGrainCarbs = [
+  ...mainGrainCarbs,
+  { id: "cocka",      name: "Čočka",                            kj: 1290 },
+  { id: "cocka_cerv", name: "Čočka červená",                    kj: 1260 },
+  { id: "hrach",      name: "Hrách",                            kj: 1270 },
+  { id: "fazole",     name: "Fazole",                           kj: 1270 },
+  { id: "cizrna",     name: "Cizrna",                           kj: 1520 },
+];
+
+// Sacharidy – pečivo (pro slaná jídla)
 const breadCarbs = [
   { id: "toast_cz",    name: "Toastový chléb celozrnný",           kj: 1074 },
   { id: "chleb_konz",  name: "Chléb konzumní",                     kj: 1020 },
@@ -257,30 +299,10 @@ const breadCarbs = [
   { id: "tortilla_cz", name: "Celozrnná tortilla",                 kj: 1100 },
 ];
 
-const grainCarbs = [
-  { id: "vlocky",      name: "Ovesné vločky",                      kj: 1562 },
-  { id: "spald_vl",    name: "Špaldové vločky",                    kj: 1474 },
-  { id: "ryz_vl",      name: "Rýžové vločky",                      kj: 1474 },
-  { id: "jahly",       name: "Jáhly",                              kj: 1530 },
-  { id: "musli",       name: "Müsli bez přidaného cukru",          kj: 1513 },
-  { id: "kuskus",      name: "Kuskus",                             kj: 1450 },
-  { id: "kuskus_cz",   name: "Celozrnný kuskus",                   kj: 1454 },
-  { id: "bulgur",      name: "Bulgur",                             kj: 1436 },
-  { id: "amarant",     name: "Amarant",                            kj: 1553 },
-  { id: "pohanka",     name: "Pohanka",                            kj: 1473 },
-  { id: "quinoa",      name: "Quinoa",                             kj: 1541 },
-  { id: "ryze_bila",   name: "Rýže bílá (jasmínová, basmati)",     kj: 1505 },
-  { id: "ryze_cz",     name: "Celozrnná rýže",                     kj: 1566 },
-  { id: "test_sem",    name: "Těstoviny semolinové",               kj: 1482 },
-  { id: "test_cz",     name: "Celozrnné těstoviny",                kj: 1478 },
-  { id: "bataty",      name: "Batáty",                             kj: 314  },
-  { id: "brambory",    name: "Brambory",                           kj: 371  },
-  { id: "cocka",       name: "Čočka",                              kj: 1290 },
-  { id: "cocka_cerv",  name: "Čočka červená",                      kj: 1260 },
-];
-
-const dairyProtein = [
-  { id: "mleko_pol",   name: "Mléko polotučné",                    kj: 198  },
+// Bílkoviny – mléčné výrobky pro SLADKOU SNÍDANI
+// FIX: dříve dairyProtein sdílelo vše; snídaně sladká v excelu nemá mléko polotučné
+const breakfastDairyProtein = [
+  { id: "mleko_pl",    name: "Plnotučné mléko",                    kj: 271  },
   { id: "jogurt_hol",  name: "Jogurt holandského typu",            kj: 279  },
   { id: "jogurt_niz",  name: "Jogurt nízkotučný",                  kj: 170  },
   { id: "jogurt_rec",  name: "Jogurt řecký (0 % tuku)",            kj: 241  },
@@ -290,11 +312,42 @@ const dairyProtein = [
   { id: "kyska",       name: "Kyška",                              kj: 178  },
   { id: "tvaroh_odt",  name: "Tvaroh odtučněný",                   kj: 288  },
   { id: "tvaroh_pol",  name: "Tvaroh polotučný",                   kj: 362  },
-  { id: "mleko_pl",    name: "Plnotučné mléko",                    kj: 271  },
   { id: "jogurt_27",   name: "Jogurt bílý 2,7 %",                  kj: 285  },
   { id: "ovofit",      name: "Ovofit různé druhy",                 kj: 330  },
 ];
 
+// Bílkoviny – mléčné výrobky pro SLADKÉ SVAČINY a PŘESNÍDÁVKY
+// FIX: sladké svačiny/přesnídávky mají stejný seznam jako snídaně sladká, bez mléka polotučného
+const snackDairyProtein = [
+  { id: "jogurt_hol",  name: "Jogurt holandského typu",            kj: 279  },
+  { id: "jogurt_niz",  name: "Jogurt nízkotučný",                  kj: 170  },
+  { id: "jogurt_rec",  name: "Jogurt řecký (0 % tuku)",            kj: 241  },
+  { id: "skyr",        name: "Skyr (0 % tuku)",                    kj: 283  },
+  { id: "kefir",       name: "Kefírové mléko / podmáslí 1,1%",     kj: 165  },
+  { id: "acidofil",    name: "Acidofilní mléko 3,6 %",             kj: 252  },
+  { id: "kyska",       name: "Kyška",                              kj: 178  },
+  { id: "tvaroh_odt",  name: "Tvaroh odtučněný",                   kj: 288  },
+  { id: "tvaroh_pol",  name: "Tvaroh polotučný",                   kj: 362  },
+  { id: "jogurt_27",   name: "Jogurt bílý 2,7 %",                  kj: 285  },
+  { id: "ovofit",      name: "Ovofit různé druhy",                 kj: 330  },
+];
+
+// Bílkoviny – mléčné výrobky pro DRUHOU VEČEŘI
+// FIX: druhá večeře v excelu nemá plnotučné mléko, mléko polotučné ani ovofit
+const dinner2DairyProtein = [
+  { id: "jogurt_hol",  name: "Jogurt holandského typu",            kj: 279  },
+  { id: "jogurt_niz",  name: "Jogurt nízkotučný",                  kj: 170  },
+  { id: "jogurt_rec",  name: "Jogurt řecký (0 % tuku)",            kj: 241  },
+  { id: "skyr",        name: "Skyr (0 % tuku)",                    kj: 283  },
+  { id: "kefir",       name: "Kefírové mléko / podmáslí 1,1%",     kj: 165  },
+  { id: "acidofil",    name: "Acidofilní mléko 3,6 %",             kj: 252  },
+  { id: "kyska",       name: "Kyška",                              kj: 178  },
+  { id: "tvaroh_odt",  name: "Tvaroh odtučněný",                   kj: 288  },
+  { id: "tvaroh_pol",  name: "Tvaroh polotučný",                   kj: 362  },
+  { id: "jogurt_27",   name: "Jogurt bílý 2,7 %",                  kj: 285  },
+];
+
+// Bílkoviny – slaná jídla (mazaná, pečivo)
 const savoryProtein = [
   { id: "tvaroh_odt",  name: "Tvaroh odtučněný",                   kj: 288  },
   { id: "tvaroh_pol",  name: "Tvaroh polotučný",                   kj: 362  },
@@ -317,6 +370,12 @@ const savoryProtein = [
   { id: "tunak_olej",  name: "Tuňák v oleji",                      kj: 820  },
 ];
 
+// Bílkoviny – slaná snídaně a přesnídávka (bez vejce dle excelu)
+// FIX: savoryProtein pro snídaně/přesnídávky/svačiny slaná NEMÁ vejce (je v col B excelu jako savory)
+// ale STUDENÁ VEČEŘE vejce MAT (přidáno níže)
+const savoryProteinNoEgg = savoryProtein.filter(f => f.id !== "vejce");
+
+// Bílkoviny – maso pro oběd s masem (všechny druhy)
 const meatProtein = [
   { id: "kure_prsa",   name: "Kuřecí / krůtí prsní řízky",        kj: 442  },
   { id: "kure_steh",   name: "Kuřecí stehenní řízky",             kj: 447  },
@@ -338,6 +397,20 @@ const meatProtein = [
   { id: "krevety",     name: "Krevety",                           kj: 347  },
 ];
 
+// Bílkoviny – maso pro VEČEŘI TEPLOU (omezená sada dle excelu)
+// FIX: večeře teplá nemá: vepřová kýta/panenka, hovězí zadní/kližka/svíčková, králík, játra, makrela, kapr, pstruh
+const dinnerMeatProtein = [
+  { id: "kure_prsa",   name: "Kuřecí / krůtí prsní řízky",        kj: 442  },
+  { id: "kure_steh",   name: "Kuřecí stehenní řízky",             kj: 447  },
+  { id: "hov_mlete",   name: "Hovězí mleté (do 10 % tuku)",       kj: 700  },
+  { id: "tunak_st",    name: "Tuňák steak",                       kj: 603  },
+  { id: "treska",      name: "Treska / mořský vlk filet",         kj: 289  },
+  { id: "tilapie",     name: "Tilápie filet",                     kj: 380  },
+  { id: "losos",       name: "Losos",                             kj: 837  },
+  { id: "krevety",     name: "Krevety",                           kj: 347  },
+];
+
+// Bílkoviny – rostlinné
 const vegProtein = [
   { id: "vejce",       name: "Vejce",                             kj: 615  },
   { id: "smakoun",     name: "Šmakoun",                           kj: 920  },
@@ -346,6 +419,7 @@ const vegProtein = [
   { id: "robi",        name: "Robi plátky",                       kj: 590  },
 ];
 
+// Tuky – pomazánky (pro pečivo)
 const spreadFat = [
   { id: "maslo",       name: "Máslo 82%",                         kj: 3051 },
   { id: "pom_maslo",   name: "Pomazánkové máslo",                 kj: 1280 },
@@ -360,6 +434,7 @@ const spreadFat = [
   { id: "hummus",      name: "Hummus",                            kj: 740  },
 ];
 
+// Tuky – ořechy a čokoláda (pro sladkou snídani)
 const nutFat = [
   { id: "vlassk_or",   name: "Vlašské ořechy",                    kj: 2757 },
   { id: "mandle",      name: "Mandle neloupané",                  kj: 2408 },
@@ -370,6 +445,17 @@ const nutFat = [
   { id: "coko_50",     name: "Hořká čokoláda 50% Orion",          kj: 2280 },
 ];
 
+// Tuky – ořechy BEZ čokolády (pro druhou večeři dle excelu)
+// FIX: druhá večeře v excelu nemá čokoládu
+const dinner2NutFat = [
+  { id: "vlassk_or",   name: "Vlašské ořechy",                    kj: 2757 },
+  { id: "mandle",      name: "Mandle neloupané",                  kj: 2408 },
+  { id: "kesu",        name: "Kešu",                              kj: 2314 },
+  { id: "liskove",     name: "Lískové ořechy",                    kj: 2630 },
+  { id: "arasidy",     name: "Arašídy / arašídové máslo",         kj: 2630 },
+];
+
+// Tuky – vaření (pro teplá jídla)
 const cookingFat = [
   { id: "repk_ol",     name: "Řepkový olej",                      kj: 3696 },
   { id: "oliv_ol",     name: "Olivový olej",                      kj: 3696 },
@@ -379,9 +465,16 @@ const cookingFat = [
   { id: "sadlo",       name: "Vepřové sádlo",                     kj: 3696 },
   { id: "smet_12",     name: "Smetana 12%",                       kj: 494  },
   { id: "zak_smet",    name: "Zakysaná smetana 16%",              kj: 720  },
+];
+
+// Tuky – vaření pro OBĚD S MASEM (má navíc anglickou slaninu dle excelu)
+// FIX: anglická slanina patří jen k obědům s masem, ne k večeři ani bezmasému obědě
+const lunchMeatCookingFat = [
+  ...cookingFat,
   { id: "angl_sl",     name: "Anglická slanina",                  kj: 1600 },
 ];
 
+// Ovoce
 const fruit = [
   { id: "ananas",      name: "Ananas",                            kj: 218  },
   { id: "banan",       name: "Banán",                             kj: 371  },
@@ -406,6 +499,7 @@ const fruit = [
   { id: "dzem_lc",     name: "Džem se sníženým obsahem cukru",    kj: 550  },
 ];
 
+// Zelenina lehká (pro svačiny, přesnídávky, studená jídla)
 const lightVeg = [
   { id: "cin_zeli",    name: "Čínské zelí / hlávkový salát",      kj: 55   },
   { id: "kedlubna",    name: "Kedlubna",                          kj: 109  },
@@ -417,9 +511,15 @@ const lightVeg = [
   { id: "ajvar",       name: "Ajvar",                             kj: 280  },
   { id: "sus_houby",   name: "Sušené houby",                      kj: 1000 },
   { id: "naklicena",   name: "Naklíčená čočka",                   kj: 150  },
+];
+
+// Zelenina lehká pro PŘESNÍDÁVKY SLANÁ + SVAČINA SLANÁ (má navíc mrkev dle excelu)
+const snackLightVeg = [
+  ...lightVeg,
   { id: "mrkev_mix",   name: "Mrkev, celer, petržel, ředkev",     kj: 155  },
 ];
 
+// Zelenina hlavní (pro obědy a teplé večeře)
 const mainVeg = [
   { id: "cuketa",      name: "Cuketa",                            kj: 71   },
   { id: "cin_zeli",    name: "Čínské zelí / hlávkový salát",      kj: 55   },
@@ -447,31 +547,106 @@ const mainVeg = [
 export function getFoodGroupsForMealType(mealType) {
   switch (mealType) {
     case "breakfast_sweet":
-      return { carbGroup: grainCarbs,  protGroup: dairyProtein,  fatGroup: nutFat,     frVegGroup: fruit    };
+      // FIX: pouze vločky/pseudoobiloviny, mléčné BEZ mléka polotučného, ořechy s čokoládou
+      return {
+        carbGroup:  breakfastGrainCarbs,
+        protGroup:  breakfastDairyProtein,
+        fatGroup:   nutFat,
+        frVegGroup: fruit,
+      };
+
     case "breakfast_savory":
-      return { carbGroup: breadCarbs,  protGroup: savoryProtein, fatGroup: spreadFat,  frVegGroup: lightVeg };
+      // FIX: savoryProtein pro slanou snídani nemá vejce (přidáno vejce jen pro studenou večeři)
+      return {
+        carbGroup:  breadCarbs,
+        protGroup:  savoryProteinNoEgg,
+        fatGroup:   spreadFat,
+        frVegGroup: lightVeg,
+      };
+
     case "snack1_sweet":
     case "snack2_sweet":
-      return { carbGroup: [],          protGroup: dairyProtein,  fatGroup: [],          frVegGroup: fruit    };
+      // FIX: sladké svačiny/přesnídávky – snackDairyProtein (bez mléka polotučného, bez plnotučného)
+      return {
+        carbGroup:  [],
+        protGroup:  snackDairyProtein,
+        fatGroup:   [],
+        frVegGroup: fruit,
+      };
+
     case "snack1_savory":
     case "snack2_savory":
-      return { carbGroup: breadCarbs,  protGroup: savoryProtein, fatGroup: spreadFat,  frVegGroup: lightVeg };
+      // FIX: slaná svačina/přesnídávka má mrkev navíc v zelenině; savoryProtein bez vejce
+      return {
+        carbGroup:  breadCarbs,
+        protGroup:  savoryProteinNoEgg,
+        fatGroup:   spreadFat,
+        frVegGroup: snackLightVeg,
+      };
+
     case "lunch_meat":
-      return { carbGroup: grainCarbs,  protGroup: meatProtein,   fatGroup: cookingFat, frVegGroup: mainVeg  };
+      // FIX: sacharidy bez čočky; tuk S anglickou slaninou; veškeré maso
+      return {
+        carbGroup:  mainGrainCarbs,
+        protGroup:  meatProtein,
+        fatGroup:   lunchMeatCookingFat,
+        frVegGroup: mainVeg,
+      };
+
     case "lunch_veg":
-      return { carbGroup: grainCarbs,  protGroup: vegProtein,    fatGroup: cookingFat, frVegGroup: mainVeg  };
+      // FIX: sacharidy + luštěniny (hrách, fazole, cizrna, čočka); tuk BEZ anglické slaniny
+      return {
+        carbGroup:  vegLunchGrainCarbs,
+        protGroup:  vegProtein,
+        fatGroup:   cookingFat,
+        frVegGroup: mainVeg,
+      };
+
     case "dinner_warm":
-      return { carbGroup: grainCarbs,  protGroup: [...vegProtein, ...meatProtein.filter(f =>
-        ["kure_prsa","kure_steh","hov_mlete","tunak_st","treska","tilapie","losos","krevety"].includes(f.id))],
-        fatGroup: cookingFat, frVegGroup: mainVeg };
+      // FIX: omezená sada masa (bez vepřového, hovězího celků, králíka, makrely atd.);
+      //      tuk BEZ anglické slaniny; vegProtein kombinován s dinnerMeatProtein
+      return {
+        carbGroup:  mainGrainCarbs,
+        protGroup:  [...dinnerMeatProtein, ...vegProtein],
+        fatGroup:   cookingFat,
+        frVegGroup: mainVeg,
+      };
+
     case "dinner_cold":
-      return { carbGroup: breadCarbs,  protGroup: savoryProtein, fatGroup: spreadFat,  frVegGroup: lightVeg };
+      // FIX: studená večeře v excelu MÁ vejce → savoryProtein (obsahuje vejce)
+      return {
+        carbGroup:  breadCarbs,
+        protGroup:  savoryProtein,
+        fatGroup:   spreadFat,
+        frVegGroup: lightVeg,
+      };
+
     case "dinner2":
-      return { carbGroup: [],          protGroup: dairyProtein,  fatGroup: nutFat,     frVegGroup: []       };
+      // FIX: druhá večeře – jen 10 mléčných bez plnotučného/polotučného/ovofitu;
+      //      ořechy BEZ čokolád
+      return {
+        carbGroup:  [],
+        protGroup:  dinner2DairyProtein,
+        fatGroup:   dinner2NutFat,
+        frVegGroup: [],
+      };
+
     case "dinner2_veg":
-      return { carbGroup: [],          protGroup: savoryProtein, fatGroup: spreadFat,  frVegGroup: mainVeg  };
+      // Druhá večeře zeleninová – bílkoviny (savory), pomazánky, zelenina s mrkví
+      return {
+        carbGroup:  [],
+        protGroup:  savoryProteinNoEgg,
+        fatGroup:   spreadFat,
+        frVegGroup: snackLightVeg,
+      };
+
     default:
-      return { carbGroup: grainCarbs,  protGroup: dairyProtein,  fatGroup: nutFat,     frVegGroup: fruit    };
+      return {
+        carbGroup:  breakfastGrainCarbs,
+        protGroup:  breakfastDairyProtein,
+        fatGroup:   nutFat,
+        frVegGroup: fruit,
+      };
   }
 }
 
