@@ -41,18 +41,20 @@ export async function getClients(userId) {
 
 export async function saveClient(userId, clientData, mealPlan) {
   const docRef = await addDoc(collection(db, CLIENTS_COLLECTION), {
-    userId, // vazba na terapeuta
+    userId,
     // Kontaktní údaje
     name: clientData.name,
     email: clientData.email || '',
     phone: clientData.phone || '',
     notes: clientData.notes || '',
-    // Fyzické údaje
+    // Fyzické údaje (pro rychlý přístup v seznamu klientů)
     age: clientData.age,
     weight: clientData.weight,
     height: clientData.height,
     gender: clientData.gender,
     goal: clientData.goal,
+    // Celý formData – potřebný pro regeneraci PDF kdykoliv
+    clientData,
     // Jídelníček
     mealPlan,
     targetCalories: mealPlan.targetKcal ?? mealPlan.targetCalories ?? 0,
