@@ -64,6 +64,9 @@ export function InfoBlock({ goal }) {
         </View>
       ))}
 
+      {info.summary.text && (
+        <Text style={s.summaryIntro}>{info.summary.text}</Text>
+      )}
       {/* Souhrnná tabulka */}
       <View style={{ marginTop: 12 }}>
         <View style={shared.dividerGreen} />
