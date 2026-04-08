@@ -1,5 +1,4 @@
-// ClientForm.jsx – kompletní verze s výběrem typů jídel
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   jobActivityOptions,
   sportOptions,
@@ -7,6 +6,7 @@ import {
   mealTypeOptions,
   mealEnergyRatios,
 } from '../calculations';
+import { ALLERGENS } from '../data/allergens';
 
 const initialState = {
   name: '',
@@ -17,12 +17,12 @@ const initialState = {
   goal: 'maintain',
   energyMode: 'calculate',
   manualKcal: '',
-  // Ruční přepis vypočteného EP (volitelné)
   overrideKj: '',
   jobActivity: 'sedentary',
   sportType: 'none',
   sportDays: '3',
   sportMinutes: '60',
+  allergens: [],  // čísla alergenů dle EU (1–14)
   // Typy jídel – lze vybrat více variant najednou (pole hodnot)
   mealTypes: {
     breakfast: ['breakfast_sweet'],
@@ -37,8 +37,15 @@ const initialState = {
   customRatios: {},
 };
 
-export default function ClientForm({ onSubmit }) {
-  const [formData, setFormData] = useState(initialState);
+export default function ClientForm({ onSubmit, initialData = null, isEditing = false }) {
+  const [formData, setFormData] = useState(() =>
+    initialData ? { ...initialState, ...initialData } : initialState
+  );
+
+  // Resetuj formulář při změně initialData (editace vs. nový klient)
+  useEffect(() => {
+    setFormData(initialData ? { ...initialState, ...initialData } : initialState);
+  }, [initialData]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -79,6 +86,20 @@ export default function ClientForm({ onSubmit }) {
     );
   }
   // Přepínání variant jídla – podporuje výběr 0, 1 nebo více variant
+  // Přepínání alergenů
+  const handleAllergenToggle = (num) => {
+    setFormData((prev) => {
+      const current = prev.allergens || [];
+      const exists  = current.includes(num);
+      return {
+        ...prev,
+        allergens: exists
+          ? current.filter((n) => n !== num)
+          : [...current, num],
+      };
+    });
+  };
+
   const handleMealTypeToggle = (mealKey, value) => {
     setFormData((prev) => {
       const current = prev.mealTypes[mealKey] || [];
@@ -127,7 +148,7 @@ export default function ClientForm({ onSubmit }) {
 
   return (
     <div style={s.container}>
-      <h2 style={s.heading}>📋 Údaje o klientovi</h2>
+      <h2 style={s.heading}>{isEditing ? "✏️ Upravit klienta" : "📋 Nový klient"}</h2>
       <form onSubmit={handleSubmit} style={s.form}>
         <SectionTitle>Základní informace</SectionTitle>
 
@@ -430,8 +451,42 @@ export default function ClientForm({ onSubmit }) {
           );
         })}
 
+        {/* ALERGENY */}
+        <SectionTitle>Alergeny klienta</SectionTitle>
+        <div style={s.infoBox}>
+          <p style={s.infoText}>
+            Zaškrtněte alergeny klienta. Dotčené potraviny budou automaticky vyřazeny z jídelníčku.
+          </p>
+          <div style={s.allergenGrid}>
+            {Object.entries(ALLERGENS).map(([num, allergen]) => {
+              const isActive = (formData.allergens || []).includes(Number(num));
+              return (
+                <button
+                  key={num}
+                  type="button"
+                  onClick={() => handleAllergenToggle(Number(num))}
+                  style={isActive ? s.allergenBtnActive : s.allergenBtnInactive}
+                  title={allergen.desc || allergen.label}
+                >
+                  <span style={s.allergenEmoji}>{allergen.emoji}</span>
+                  <span style={s.allergenNum}>{num}</span>
+                  <span style={s.allergenLabel}>{allergen.label}</span>
+                  {allergen.ids.length === 0 && (
+                    <span style={s.allergenNone}> (není v DB)</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+          {(formData.allergens || []).length > 0 && (
+            <p style={{ ...s.infoText, color: '#b5541b', marginTop: 8, marginBottom: 0 }}>
+              ⚠️ Vyřazeno {(formData.allergens || []).length} skupin alergenů
+            </p>
+          )}
+        </div>
+
         <button type="submit" style={s.submitBtn}>
-          Vytvořit jídelníček →
+          {isEditing ? "Uložit změny →" : "Vytvořit jídelníček →"}
         </button>
       </form>
     </div>
@@ -576,6 +631,58 @@ const s = {
     fontSize: 15,
     fontWeight: 700,
     cursor: 'pointer',
+  },
+  allergenGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
+    gap: 8,
+    marginTop: 4,
+  },
+  allergenBtnActive: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+    padding: '8px 12px',
+    background: '#fdf1e8',
+    border: '2px solid #b5541b',
+    borderRadius: 8,
+    cursor: 'pointer',
+    textAlign: 'left',
+    width: '100%',
+  },
+  allergenBtnInactive: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+    padding: '8px 12px',
+    background: '#fff',
+    border: '1px solid #e0e0e0',
+    borderRadius: 8,
+    cursor: 'pointer',
+    textAlign: 'left',
+    width: '100%',
+  },
+  allergenEmoji: {
+    fontSize: 16,
+    flexShrink: 0,
+  },
+  allergenNum: {
+    fontWeight: 700,
+    fontSize: 12,
+    color: '#b5541b',
+    flexShrink: 0,
+    minWidth: 16,
+  },
+  allergenLabel: {
+    fontSize: 11,
+    color: '#333',
+    lineHeight: 1.3,
+    flex: 1,
+  },
+  allergenNone: {
+    fontSize: 10,
+    color: '#aaa',
+    fontStyle: 'italic',
   },
 
   mealSection: { padding: '10px 0', borderBottom: '1px solid #f0f0f0' },

@@ -3,6 +3,7 @@ import {
   mealEnergyRatios,
   mealTypeOptions,
 } from './data/mealConfig';
+import { getForbiddenFoodIds, filterFoodsByAllergens } from './data/allergens';
 
 export { mealTypeOptions, mealEnergyRatios } from './data/mealConfig';
 
@@ -299,21 +300,26 @@ export function generateMealPlan(clientData) {
   const mealPlan = meals.map((meal) => {
     const { carbGroup, protGroup, fatGroup, frVegGroup } =
       getFoodGroupsForMealType(meal.mealType);
+
+    // Filtrování dle alergenů – odstraní zakázané potraviny
+    const forbidden = getForbiddenFoodIds(clientData.allergens || []);
+    const filter = (group) => filterFoodsByAllergens(group, forbidden);
+
     return {
       ...meal,
-      carbOptions: carbGroup.map((f) => ({
+      carbOptions: filter(carbGroup).map((f) => ({
         ...f,
         portionGrams: calculatePortionByEnergy(f.kj, meal.energyCarbs),
       })),
-      protOptions: protGroup.map((f) => ({
+      protOptions: filter(protGroup).map((f) => ({
         ...f,
         portionGrams: calculatePortionByEnergy(f.kj, meal.energyProt),
       })),
-      fatOptions: fatGroup.map((f) => ({
+      fatOptions: filter(fatGroup).map((f) => ({
         ...f,
         portionGrams: calculatePortionByEnergy(f.kj, meal.energyFat),
       })),
-      frVegOptions: frVegGroup.map((f) => ({
+      frVegOptions: filter(frVegGroup).map((f) => ({
         ...f,
         portionGrams: calculatePortionByEnergy(f.kj, meal.energyFrVeg),
       })),

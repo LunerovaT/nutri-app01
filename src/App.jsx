@@ -2,7 +2,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { auth } from './firebase';
-import { getClients, saveClient, deleteClient } from './clientService';
+import {
+  getClients,
+  saveClient,
+  updateClient,
+  deleteClient,
+} from './clientService';
 import { generateMealPlan } from './calculations';
 
 import LoginScreen from './components/LoginScreen';
@@ -17,6 +22,7 @@ export default function App() {
   const [screen, setScreen] = useState('list');
   const [mealPlan, setMealPlan] = useState(null);
   const [clientData, setClientData] = useState(null);
+  const [editingClient, setEditingClient] = useState(null);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
@@ -44,12 +50,20 @@ export default function App() {
     else setClients([]);
   }, [user, loadClients]);
 
+  // Nový klient nebo uložení upraveného
   const handleFormSubmit = async (formData) => {
     const plan = generateMealPlan(formData);
     setMealPlan(plan);
     setClientData(formData);
     try {
-      await saveClient(user.uid, formData, plan);
+      if (editingClient) {
+        // Aktualizace existujícího klienta
+        await updateClient(editingClient.id, formData, plan);
+        setEditingClient(null);
+      } else {
+        // Nový klient
+        await saveClient(user.uid, formData, plan);
+      }
       await loadClients();
     } catch (err) {
       console.error('Chyba při ukládání:', err);
@@ -57,10 +71,18 @@ export default function App() {
     setScreen('plan');
   };
 
+  // Otevření jídelníčku klienta
   const handleOpenClient = (client) => {
     setMealPlan(client.mealPlan);
-    setClientData(client.clientData ?? null); // načte uložená data z Firestore
+    setClientData(client.clientData ?? null);
+    setEditingClient(null);
     setScreen('plan');
+  };
+
+  // Editace klienta – předvyplní formulář
+  const handleEditClient = (client) => {
+    setEditingClient(client);
+    setScreen('form');
   };
 
   const handleDeleteClient = async (clientId) => {
@@ -77,6 +99,13 @@ export default function App() {
     await signOut(auth);
     setScreen('list');
     setMealPlan(null);
+    setEditingClient(null);
+  };
+
+  // Při přechodu na formulář nového klienta resetuje editingClient
+  const handleNewClient = () => {
+    setEditingClient(null);
+    setScreen('form');
   };
 
   if (authLoading) return <LoadingScreen text="Načítám aplikaci…" />;
@@ -97,7 +126,13 @@ export default function App() {
         </div>
         <div style={s.headerRight}>
           {screen !== 'list' && (
-            <button onClick={() => setScreen('list')} style={s.breadcrumb}>
+            <button
+              onClick={() => {
+                setEditingClient(null);
+                setScreen('list');
+              }}
+              style={s.breadcrumb}
+            >
               ← Seznam klientů
             </button>
           )}
@@ -113,7 +148,7 @@ export default function App() {
           <div style={s.container}>
             <div style={s.listHeader}>
               <h2 style={s.listTitle}>Moji klienti</h2>
-              <button onClick={() => setScreen('form')} style={s.newBtn}>
+              <button onClick={handleNewClient} style={s.newBtn}>
                 + Nový klient
               </button>
             </div>
@@ -124,7 +159,7 @@ export default function App() {
               <div style={s.emptyState}>
                 <p style={{ fontSize: 40 }}>👤</p>
                 <p style={{ color: '#888' }}>Zatím nemáte žádné klienty.</p>
-                <button onClick={() => setScreen('form')} style={s.newBtn}>
+                <button onClick={handleNewClient} style={s.newBtn}>
                   Přidat prvního klienta
                 </button>
               </div>
@@ -157,6 +192,12 @@ export default function App() {
                     Zobrazit
                   </button>
                   <button
+                    onClick={() => handleEditClient(client)}
+                    style={s.editBtn}
+                  >
+                    Upravit
+                  </button>
+                  <button
                     onClick={() => handleDeleteClient(client.id)}
                     style={s.deleteBtn}
                   >
@@ -168,14 +209,20 @@ export default function App() {
           </div>
         )}
 
-        {screen === 'form' && <ClientForm onSubmit={handleFormSubmit} />}
+        {screen === 'form' && (
+          <ClientForm
+            onSubmit={handleFormSubmit}
+            initialData={editingClient?.clientData ?? null}
+            isEditing={!!editingClient}
+          />
+        )}
 
         {screen === 'plan' && mealPlan && (
           <MealPlanView
             plan={mealPlan}
             clientData={clientData}
             onReset={() => setScreen('list')}
-            onNewClient={() => setScreen('form')}
+            onNewClient={handleNewClient}
           />
         )}
       </main>
@@ -292,6 +339,16 @@ const s = {
     background: '#2d6a4f',
     color: '#fff',
     border: 'none',
+    borderRadius: 6,
+    fontSize: 13,
+    fontWeight: 600,
+    cursor: 'pointer',
+  },
+  editBtn: {
+    padding: '7px 14px',
+    background: '#fff',
+    color: '#2d6a4f',
+    border: '1px solid #2d6a4f',
     borderRadius: 6,
     fontSize: 13,
     fontWeight: 600,

@@ -1,8 +1,3 @@
-// src/clientService.js
-// Veškeré operace s databází klientů.
-// Každý terapeut vidí pouze své vlastní klienty –
-// záznamy jsou vázané na userId přihlášeného uživatele.
-
 import {
   collection,
   addDoc,
@@ -47,13 +42,11 @@ export async function saveClient(userId, clientData, mealPlan) {
     email: clientData.email || '',
     phone: clientData.phone || '',
     notes: clientData.notes || '',
-    // Fyzické údaje (pro rychlý přístup v seznamu klientů)
     age: clientData.age,
     weight: clientData.weight,
     height: clientData.height,
     gender: clientData.gender,
     goal: clientData.goal,
-    // Celý formData – potřebný pro regeneraci PDF kdykoliv
     clientData,
     // Jídelníček
     mealPlan,
@@ -80,8 +73,11 @@ export async function updateClient(clientId, clientData, mealPlan) {
     height: clientData.height,
     gender: clientData.gender,
     goal: clientData.goal,
+    // Celý formData pro PDF
+    clientData,
+    // Jídelníček
     mealPlan,
-    targetCalories: mealPlan.targetCalories,
+    targetCalories: mealPlan.targetKcal ?? mealPlan.targetCalories ?? 0,
     updatedAt: serverTimestamp(),
   });
 }
