@@ -1,13 +1,12 @@
 // pdf/styles.js – sdílené styly pro @react-pdf/renderer
-import { StyleSheet, Font } from '@react-pdf/renderer';
-
-const BASE = process.env.PUBLIC_URL || 'http://localhost:3000';
+import RobotoRegular from './fonts/Roboto-Regular.b64.js';
+import RobotoBold from './fonts/Roboto-Bold.b64.js';
 
 Font.register({
   family: 'Roboto',
   fonts: [
-    { src: `${BASE}/fonts/Roboto-Regular.ttf`, fontWeight: 400 },
-    { src: `${BASE}/fonts/Roboto-Bold.ttf`, fontWeight: 700 },
+    { src: `data:font/truetype;base64,${RobotoRegular}`, fontWeight: 400 },
+    { src: `data:font/truetype;base64,${RobotoBold}`, fontWeight: 700 },
   ],
 });
 // ─── BARVY ────────────────────────────────────────────────────────────────────
