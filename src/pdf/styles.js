@@ -1,4 +1,5 @@
 // pdf/styles.js – sdílené styly pro @react-pdf/renderer
+import { StyleSheet, Font } from '@react-pdf/renderer';
 import RobotoRegular from './fonts/Roboto-Regular.b64.js';
 import RobotoBold from './fonts/Roboto-Bold.b64.js';
 
@@ -9,6 +10,7 @@ Font.register({
     { src: `data:font/truetype;base64,${RobotoBold}`, fontWeight: 700 },
   ],
 });
+
 // ─── BARVY ────────────────────────────────────────────────────────────────────
 export const C = {
   greenDark: '#2d6a4f',
