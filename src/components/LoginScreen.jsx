@@ -1,34 +1,38 @@
-// src/components/LoginScreen.jsx
-// Přihlašovací obrazovka – zobrazí se pokud uživatel není přihlášen.
-// Podporuje přihlášení i registraci nového účtu.
-
-import { useState } from "react";
+import { useState } from 'react';
 import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
-} from "firebase/auth";
-import { auth } from "../firebase";
+} from 'firebase/auth';
+import { auth } from '../firebase';
 
 export default function LoginScreen() {
-  const [mode, setMode]       = useState("login"); // "login" nebo "register"
-  const [email, setEmail]     = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError]     = useState("");
+  const [mode, setMode] = useState('login'); // "login" nebo "register"
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [gdprConsent, setGdprConsent] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setError("");
+    setError('');
     setLoading(true);
 
     try {
-      if (mode === "login") {
+      if (mode === 'login') {
         // Přihlášení existujícího účtu
         await signInWithEmailAndPassword(auth, email, password);
       } else {
         // Registrace nového účtu
         if (password.length < 6) {
-          setError("Heslo musí mít alespoň 6 znaků.");
+          setError('Heslo musí mít alespoň 6 znaků.');
+          setLoading(false);
+          return;
+        }
+        if (!gdprConsent) {
+          setError(
+            'Pro vytvoření účtu je nutné souhlasit se zásadami ochrany osobních údajů.',
+          );
           setLoading(false);
           return;
         }
@@ -39,22 +43,22 @@ export default function LoginScreen() {
     } catch (err) {
       // Přeložíme Firebase chybové kódy do češtiny
       switch (err.code) {
-        case "auth/user-not-found":
-        case "auth/wrong-password":
-        case "auth/invalid-credential":
-          setError("Nesprávný e-mail nebo heslo.");
+        case 'auth/user-not-found':
+        case 'auth/wrong-password':
+        case 'auth/invalid-credential':
+          setError('Nesprávný e-mail nebo heslo.');
           break;
-        case "auth/email-already-in-use":
-          setError("Tento e-mail je již registrován. Zkuste se přihlásit.");
+        case 'auth/email-already-in-use':
+          setError('Tento e-mail je již registrován. Zkuste se přihlásit.');
           break;
-        case "auth/invalid-email":
-          setError("Zadejte prosím platnou e-mailovou adresu.");
+        case 'auth/invalid-email':
+          setError('Zadejte prosím platnou e-mailovou adresu.');
           break;
-        case "auth/too-many-requests":
-          setError("Příliš mnoho pokusů. Zkuste to prosím za chvíli.");
+        case 'auth/too-many-requests':
+          setError('Příliš mnoho pokusů. Zkuste to prosím za chvíli.');
           break;
         default:
-          setError("Chyba přihlášení. Zkuste to prosím znovu.");
+          setError('Chyba přihlášení. Zkuste to prosím znovu.');
       }
     } finally {
       setLoading(false);
@@ -73,15 +77,21 @@ export default function LoginScreen() {
         <div style={s.toggleRow}>
           <button
             type="button"
-            style={mode === "login" ? s.toggleActive : s.toggleInactive}
-            onClick={() => { setMode("login"); setError(""); }}
+            style={mode === 'login' ? s.toggleActive : s.toggleInactive}
+            onClick={() => {
+              setMode('login');
+              setError('');
+            }}
           >
             Přihlásit se
           </button>
           <button
             type="button"
-            style={mode === "register" ? s.toggleActive : s.toggleInactive}
-            onClick={() => { setMode("register"); setError(""); }}
+            style={mode === 'register' ? s.toggleActive : s.toggleInactive}
+            onClick={() => {
+              setMode('register');
+              setError('');
+            }}
           >
             Nový účet
           </button>
@@ -108,24 +118,47 @@ export default function LoginScreen() {
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder={mode === "register" ? "alespoň 6 znaků" : "••••••••"}
+              placeholder={mode === 'register' ? 'alespoň 6 znaků' : '••••••••'}
               required
             />
           </label>
+
+          {/* GDPR souhlas - pouze při registraci */}
+          {mode === 'register' && (
+            <label style={s.gdprLabel}>
+              <input
+                type="checkbox"
+                checked={gdprConsent}
+                onChange={(e) => setGdprConsent(e.target.checked)}
+                style={s.gdprCheckbox}
+              />
+              <span style={s.gdprText}>
+                Souhlasím se{' '}
+                <a
+                  href="/privacy-policy.html"
+                  target="_blank"
+                  style={s.gdprLink}
+                >
+                  zásadami ochrany osobních údajů
+                </a>
+                . Zavazuji se zpracovávat údaje klientů v souladu s GDPR.
+              </span>
+            </label>
+          )}
 
           {/* Chybová zpráva */}
           {error && <p style={s.error}>{error}</p>}
 
           <button type="submit" style={s.submitBtn} disabled={loading}>
             {loading
-              ? "Načítám…"
-              : mode === "login"
-              ? "Přihlásit se"
-              : "Vytvořit účet"}
+              ? 'Načítám…'
+              : mode === 'login'
+                ? 'Přihlásit se'
+                : 'Vytvořit účet'}
           </button>
         </form>
 
-        {mode === "register" && (
+        {mode === 'register' && (
           <p style={s.hint}>
             Po vytvoření účtu se automaticky přihlásíte. Každý terapeut má
             vlastní soukromou databázi klientů.
@@ -138,70 +171,128 @@ export default function LoginScreen() {
 
 const s = {
   page: {
-    minHeight: "100vh",
-    background: "#f0f4f1",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    fontFamily: "sans-serif",
+    minHeight: '100vh',
+    background: '#f0f4f1',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontFamily: 'sans-serif',
     padding: 20,
   },
   card: {
-    background: "#fff",
+    background: '#fff',
     borderRadius: 16,
-    padding: "40px 36px",
+    padding: '40px 36px',
     maxWidth: 400,
-    width: "100%",
-    boxShadow: "0 4px 24px rgba(0,0,0,0.10)",
-    textAlign: "center",
+    width: '100%',
+    boxShadow: '0 4px 24px rgba(0,0,0,0.10)',
+    textAlign: 'center',
   },
-  logo:        { fontSize: 48, marginBottom: 8 },
-  appName:     { margin: "0 0 4px", fontSize: 28, color: "#2d6a4f" },
-  appSubtitle: { margin: "0 0 28px", fontSize: 13, color: "#888" },
+  logo: { fontSize: 48, marginBottom: 8 },
+  appName: { margin: '0 0 4px', fontSize: 28, color: '#2d6a4f' },
+  appSubtitle: { margin: '0 0 28px', fontSize: 13, color: '#888' },
   toggleRow: {
-    display: "flex",
+    display: 'flex',
     gap: 8,
     marginBottom: 24,
-    background: "#f0f4f1",
+    background: '#f0f4f1',
     borderRadius: 10,
     padding: 4,
   },
   toggleActive: {
-    flex: 1, padding: "9px", borderRadius: 8,
-    border: "none", background: "#2d6a4f",
-    color: "#fff", fontWeight: 700, fontSize: 14, cursor: "pointer",
+    flex: 1,
+    padding: '9px',
+    borderRadius: 8,
+    border: 'none',
+    background: '#2d6a4f',
+    color: '#fff',
+    fontWeight: 700,
+    fontSize: 14,
+    cursor: 'pointer',
   },
   toggleInactive: {
-    flex: 1, padding: "9px", borderRadius: 8,
-    border: "none", background: "transparent",
-    color: "#555", fontWeight: 600, fontSize: 14, cursor: "pointer",
+    flex: 1,
+    padding: '9px',
+    borderRadius: 8,
+    border: 'none',
+    background: 'transparent',
+    color: '#555',
+    fontWeight: 600,
+    fontSize: 14,
+    cursor: 'pointer',
   },
   form: {
-    display: "flex", flexDirection: "column",
-    gap: 14, textAlign: "left",
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 14,
+    textAlign: 'left',
   },
   label: {
-    display: "flex", flexDirection: "column",
-    gap: 5, fontSize: 13, fontWeight: 600, color: "#444",
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 5,
+    fontSize: 13,
+    fontWeight: 600,
+    color: '#444',
   },
   input: {
-    padding: "10px 12px", borderRadius: 8,
-    border: "1px solid #d0d0d0", fontSize: 15,
-    outline: "none", width: "100%", boxSizing: "border-box",
+    padding: '10px 12px',
+    borderRadius: 8,
+    border: '1px solid #d0d0d0',
+    fontSize: 15,
+    outline: 'none',
+    width: '100%',
+    boxSizing: 'border-box',
   },
   error: {
-    margin: 0, padding: "10px 14px",
-    background: "#fff0f0", border: "1px solid #f5c0c0",
-    borderRadius: 8, color: "#c0392b", fontSize: 13,
+    margin: 0,
+    padding: '10px 14px',
+    background: '#fff0f0',
+    border: '1px solid #f5c0c0',
+    borderRadius: 8,
+    color: '#c0392b',
+    fontSize: 13,
   },
   submitBtn: {
-    marginTop: 4, padding: "13px",
-    background: "#2d6a4f", color: "#fff",
-    border: "none", borderRadius: 8,
-    fontSize: 15, fontWeight: 700, cursor: "pointer",
+    marginTop: 4,
+    padding: '13px',
+    background: '#2d6a4f',
+    color: '#fff',
+    border: 'none',
+    borderRadius: 8,
+    fontSize: 15,
+    fontWeight: 700,
+    cursor: 'pointer',
   },
   hint: {
-    marginTop: 16, fontSize: 12,
-    color: "#999", lineHeight: 1.5,
+    marginTop: 16,
+    fontSize: 12,
+    color: '#999',
+    lineHeight: 1.5,
+  },
+  gdprLabel: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    gap: 8,
+    cursor: 'pointer',
+    marginTop: 4,
+  },
+  gdprCheckbox: {
+    marginTop: 3,
+    flexShrink: 0,
+    width: 16,
+    height: 16,
+    cursor: 'pointer',
+    accentColor: '#2d6a4f',
+  },
+  gdprText: {
+    fontSize: 12,
+    color: '#555',
+    lineHeight: 1.5,
+    textAlign: 'left',
+  },
+  gdprLink: {
+    color: '#2d6a4f',
+    fontWeight: 600,
   },
 };
